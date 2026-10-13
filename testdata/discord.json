@@ -1,0 +1,26 @@
+{
+  "content": "SINTÉTICO: ação de teste — João, 日本語, 😀\n  dois espaços  ",
+  "username": "SYNTHETIC",
+  "embeds": [
+    {
+      "title": "Inventário sintético",
+      "description": "Linha um\n\nLinha dois  com espaços",
+      "color": 16711680,
+      "url": "https://example.invalid/data-only",
+      "timestamp": "2026-01-02T03:04:05-03:00",
+      "fields": [
+        {"name": "Personagem", "value": "9007199254740993123", "inline": true},
+        {"name": "Discord", "value": "18446744073709551615"},
+        {"name": "Sessão", "value": "42"},
+        {"name": "Quantidade", "value": "12"},
+        {"name": "Quantidade", "value": "99"}
+      ],
+      "image": {"url": "http://127.0.0.1:1/never-fetch"},
+      "unknown": {"large": 9007199254740993123, "null": null, "boolean": true}
+    },
+    {"title": "Segundo embed", "description": "<script>isto é dado, não HTML executável</script>", "color": 255}
+  ],
+  "unknown_top": [false, null, 18446744073709551615],
+  "dataset": "client-cannot-route",
+  "resource": "client-cannot-route"
+}

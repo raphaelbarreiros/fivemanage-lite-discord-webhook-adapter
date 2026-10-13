@@ -1,0 +1,99 @@
+name: fml-adapter-dev
+services:
+  postgres:
+    image: postgres:17.4-bookworm@sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad
+    environment:
+      POSTGRES_USER: lite
+      POSTGRES_DB: lite
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U lite -d lite"]
+      interval: 3s
+      timeout: 2s
+      retries: 30
+    networks: [backend]
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3.3.42@sha256:cc6b7488017512db99bff97c493030152bb786249afdfec8b6714eaf16a6f4ae
+    environment:
+      CLICKHOUSE_USER: lite
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    entrypoint: [/bin/sh, -ec, 'export CLICKHOUSE_PASSWORD="$$(cat /run/secrets/clickhouse_password)"; exec /entrypoint.sh']
+    secrets: [clickhouse_password]
+    volumes: ["clickhouse_data:/var/lib/clickhouse", "clickhouse_logs:/var/log/clickhouse-server"]
+    healthcheck:
+      test: [CMD, wget, --spider, -q, http://127.0.0.1:8123/ping]
+      interval: 3s
+      timeout: 2s
+      retries: 30
+    networks: [backend]
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+  lite:
+    image: fml-adapter-lite:74ba491-${LITE_VARIANT:-patched}
+    build:
+      context: .
+      dockerfile: integration/Lite.Dockerfile
+      args:
+        LITE_PATCHED: ${LITE_PATCHED:-1}
+    environment:
+      CLICKHOUSE_HOST: clickhouse:9000
+      CLICKHOUSE_USERNAME: lite
+      CLICKHOUSE_DATABASE: default
+      S3_PROVIDER: s3
+      AWS_BUCKET: synthetic-unused
+      AWS_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_ENDPOINT: http://127.0.0.1:1
+      ENV: dev
+    secrets: [admin_password, hmac_secret, postgres_password, clickhouse_password]
+    ports: ["127.0.0.1:18080:8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      clickhouse: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, --spider, -q, http://127.0.0.1:8080/]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+  adapter:
+    image: fml-discord-adapter:0.1.0
+    build: {context: ., dockerfile: Dockerfile}
+    ports: ["127.0.0.1:18081:8080", "127.0.0.1:19090:9090"]
+    volumes:
+      - adapter_data:/data
+      - ./.local/compose.config.json:/etc/adapter/config.json:ro
+    secrets: [source_token, lite_token]
+    depends_on:
+      lite: {condition: service_healthy}
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+secrets:
+  postgres_password: {file: .local/secrets/postgres_password}
+  clickhouse_password: {file: .local/secrets/clickhouse_password}
+  admin_password: {file: .local/secrets/admin_password}
+  hmac_secret: {file: .local/secrets/hmac_secret}
+  source_token: {file: .local/secrets/source_token}
+  lite_token: {file: .local/secrets/lite_token}
+volumes:
+  postgres_data:
+  clickhouse_data:
+  clickhouse_logs:
+  adapter_data:
+networks:
+  backend:

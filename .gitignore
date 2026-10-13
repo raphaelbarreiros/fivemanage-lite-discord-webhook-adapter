@@ -1,0 +1,11 @@
+.cache/
+.local/
+artifacts/
+data/
+secrets/
+*.db
+*.db-wal
+*.db-shm
+*.test
+__pycache__/
+*.pyc

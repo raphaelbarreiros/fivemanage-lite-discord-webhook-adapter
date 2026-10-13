@@ -1,0 +1,54 @@
+{
+  "listen": ":8080",
+  "admin_listen": "127.0.0.1:9090",
+  "data_dir": "/data",
+  "lite_url": "https://lite.example.invalid",
+  "allow_http": false,
+  "max_body_bytes": 262144,
+  "max_inflight": 32,
+  "admission_timeout": "5s",
+  "http_timeout": "10s",
+  "shutdown_timeout": "20s",
+  "retry_min": "1s",
+  "retry_max": "5m",
+  "max_attempts": 100,
+  "send_interval": "100ms",
+  "queue": {
+    "max_messages": 10000,
+    "max_bytes": 134217728,
+    "max_age": "24h",
+    "overflow": "reject_new",
+    "min_free_bytes": 268435456,
+    "max_disk_bytes": 536870912,
+    "busy_timeout": "500ms",
+    "maintenance_interval": "30s",
+    "vacuum_pages": 256
+  },
+  "sources": [
+    {
+      "id": "alpha-inventory",
+      "secret_file": "/run/secrets/alpha_webhook",
+      "lite_token_file": "/run/secrets/alpha_lite_token",
+      "dataset": "fivem",
+      "resource": "inventory",
+      "rule": {
+        "event_type": "inventory_change",
+        "fields": {
+          "player_session_id": "Session",
+          "player_character_id": "Character",
+          "player_account_id": "Account",
+          "player_discord_id": "Discord",
+          "item": "Item",
+          "quantity": "Quantity"
+        }
+      }
+    },
+    {
+      "id": "beta-inventory",
+      "secret_file": "/run/secrets/beta_webhook",
+      "lite_token_file": "/run/secrets/beta_lite_token",
+      "dataset": "fivem",
+      "resource": "inventory"
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+diff --git a/internal/clickhouse/client.go b/internal/clickhouse/client.go
+index 8a0302d..b13699f 100644
+--- a/internal/clickhouse/client.go
++++ b/internal/clickhouse/client.go
+@@ -105,12 +105,20 @@ func (c *Client) BatchWriteLogRows(ctx context.Context, logs []*Log) error {
+ 	if len(logs) == 0 {
+ 		return nil
+ 	}
++	if !c.Enabled || c.conn == nil {
++		return errors.New("log storage unavailable")
++	}
++	// Override any async_insert server profile: success must await storage.
++	ctx = clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
++		"async_insert":          0,
++		"wait_for_async_insert": 1,
++	}))
+ 
+ 	batch, err := c.conn.PrepareBatch(ctx, "INSERT INTO logs (Timestamp, DatasetId, TraceId, TeamId, Body, Attributes, RetentionDays)")
+ 	if err != nil {
+-		fmt.Println("failed to prepare batch", err.Error())
+ 		return fmt.Errorf("failed to prepare batch: %w", err)
+ 	}
++	defer func() { _ = batch.Abort() }()
+ 
+ 	for _, log := range logs {
+ 		err := batch.Append(
+@@ -123,7 +131,6 @@ func (c *Client) BatchWriteLogRows(ctx context.Context, logs []*Log) error {
+ 			log.RetentionDays,
+ 		)
+ 		if err != nil {
+-			fmt.Println("failed to append log to batch", err.Error())
+ 			return fmt.Errorf("failed to append log to batch: %w", err)
+ 		}
+ 	}
+diff --git a/internal/http/publicapi/logs_group.go b/internal/http/publicapi/logs_group.go
+index edcee99..413e70e 100644
+--- a/internal/http/publicapi/logs_group.go
++++ b/internal/http/publicapi/logs_group.go
+@@ -1,6 +1,8 @@
+ package publicapi
+ 
+ import (
++	"errors"
++
+ 	"github.com/fivemanage/lite/api"
+ 	"github.com/fivemanage/lite/internal/auth"
+ 	"github.com/fivemanage/lite/internal/http/httputil"
+@@ -37,6 +39,8 @@ type logsHandler struct {
+ // @Param        logs                  body      []api.Log  true   "Logs to submit"
+ // @Success      200                   {object}  httputil.ResponseData{data=string}
+ // @Failure      401                   {object}  httputil.ErrorResponseData
++// @Failure      400                   {object}  httputil.ErrorResponseData
++// @Failure      503                   {object}  httputil.ErrorResponseData
+ // @Router       /logs [post]
+ func (h *logsHandler) submitLogs(c echo.Context) error {
+ 	ctx := c.Request().Context()
+@@ -52,7 +56,13 @@ func (h *logsHandler) submitLogs(c echo.Context) error {
+ 		return err
+ 	}
+ 
+-	h.logService.SubmitLogs(ctx, orgID, dataset, logs)
++	if err := h.logService.SubmitLogs(ctx, orgID, dataset, logs); err != nil {
++		if errors.Is(err, log.ErrDatasetNotFound) {
++			return c.JSON(400, httputil.ErrorResponse("dataset not found"))
++		}
++		return c.JSON(503, httputil.ErrorResponse("log storage unavailable"))
++	}
++	c.Response().Header().Set("X-Fivemanage-Ingest", "clickhouse-sync-v1")
+ 
+ 	return c.JSON(200, httputil.Response("ok"))
+ }
+diff --git a/internal/service/log/service.go b/internal/service/log/service.go
+index 86a726e..b6b9231 100644
+--- a/internal/service/log/service.go
++++ b/internal/service/log/service.go
+@@ -2,6 +2,9 @@ package log
+ 
+ import (
+ 	"context"
++	"database/sql"
++	"errors"
++	"fmt"
+ 	"maps"
+ 	"time"
+ 
+@@ -10,10 +13,10 @@ import (
+ 	"github.com/fivemanage/lite/internal/crypt"
+ 	"github.com/fivemanage/lite/internal/service/dataset"
+ 	"github.com/uptrace/bun"
+-	"github.com/uptrace/opentelemetry-go-extra/otelzap"
+-	"go.uber.org/zap"
+ )
+ 
++var ErrDatasetNotFound = errors.New("dataset not found")
++
+ type Service struct {
+ 	db               *bun.DB
+ 	datasetService   *dataset.Service
+@@ -28,20 +31,21 @@ func NewService(db *bun.DB, clickhouseClient *clickhouse.Client, datasetService
+ 	}
+ }
+ 
+-func (r *Service) SubmitLogs(ctx context.Context, organizationId string, datasetName string, logs []api.Log) {
+-	clickhouseLogs := make([]*clickhouse.Log, 0)
++func (r *Service) SubmitLogs(ctx context.Context, organizationId string, datasetName string, logs []api.Log) error {
++	clickhouseLogs := make([]*clickhouse.Log, 0, len(logs))
+ 
+ 	dataset, err := r.datasetService.FindByName(ctx, organizationId, datasetName)
+ 	if err != nil {
+-		otelzap.L().Error("failed to find dataset", zap.Error(err))
+-		return
++		if errors.Is(err, sql.ErrNoRows) {
++			return ErrDatasetNotFound
++		}
++		return fmt.Errorf("find dataset: %w", err)
+ 	}
+ 
+ 	for _, log := range logs {
+ 		traceID, err := crypt.GeneratePrimaryKey()
+ 		if err != nil {
+-			otelzap.L().Error("failed to generate trace id", zap.Error(err))
+-			break
++			return fmt.Errorf("generate trace id: %w", err)
+ 		}
+ 
+ 		timestamp := time.Now().UTC()
+@@ -70,8 +74,5 @@ func (r *Service) SubmitLogs(ctx context.Context, organizationId string, dataset
+ 		})
+ 	}
+ 
+-	err = r.clickhouseClient.BatchWriteLogRows(ctx, clickhouseLogs)
+-	if err != nil {
+-		otelzap.L().Error("failed to submit logs to kafka", zap.Error(err))
+-	}
++	return r.clickhouseClient.BatchWriteLogRows(ctx, clickhouseLogs)
+ }
