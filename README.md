@@ -377,3 +377,9 @@ Original adapter code is distributed under the [MIT License](LICENSE). Third-par
 **Fivemanage Lite is not MIT at the tested commit.** Its authoritative `LICENSE.md` specifies **FSL-1.1-ALv2**, explicitly permitting internal use, restricting competing commercial uses, and providing an Apache-2.0 future license on the applicable second anniversary. The upstream README's MIT claim does not match that license file. The separate patch retains Lite's terms in [`patches/lite/LICENSE.md`](patches/lite/LICENSE.md); the adapter's MIT license does not relicense Lite.
 
 Review the applicable licenses and security updates before redistribution or deployment. Pinned images reproduce tested inputs; they do not certify that all upstream components are vulnerability-free.
+
+## Published container images
+
+GitHub Actions verifies formatting, runs `go vet`, the race-enabled tests, and module verification before publishing the adapter to `ghcr.io/raphaelbarreiros/fivemanage-lite-discord-webhook-adapter`. Pull requests only run verification. Pushes to `main` publish `main` and `sha-<full-commit>` tags; version tags also publish their matching `v*` tag. Manual runs are supported.
+
+Images target Linux/amd64 and Linux/arm64 and include build provenance and an SBOM. For deployment, use the immutable digest recorded in the workflow summary, not the moving `main` tag. Publishing does not trigger a Dokploy deployment. The Lite patch is still required: this workflow publishes only the adapter, not a patched Lite image.
